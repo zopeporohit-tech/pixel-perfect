@@ -1,4 +1,4 @@
-import { Leaf, Zap, BarChart3, Building2, Brain, FileText, Users, Globe } from "lucide-react";
+import { Leaf, Zap, BarChart3, Building2, Brain, FileText, Users, Globe, Trophy } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import {
@@ -11,6 +11,7 @@ const mainItems = [
   { title: "Building Data", url: "/buildings", icon: Building2 },
   { title: "EUI Comparison", url: "/benchmarks", icon: BarChart3 },
   { title: "AI Forecasting", url: "/ai-forecasting", icon: Brain },
+  { title: "Energy Champions", url: "/gamification", icon: Trophy },
 ];
 
 const secondaryItems = [

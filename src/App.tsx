@@ -10,6 +10,7 @@ import BenchmarksPage from "./pages/BenchmarksPage";
 import AIForecastingPage from "./pages/AIForecastingPage";
 import ReportsPage from "./pages/ReportsPage";
 import OnboardingPage from "./pages/OnboardingPage";
+import GamificationPage from "./pages/GamificationPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -28,6 +29,7 @@ const App = () => (
             <Route path="/ai-forecasting" element={<AIForecastingPage />} />
             <Route path="/reports" element={<ReportsPage />} />
             <Route path="/onboarding" element={<OnboardingPage />} />
+            <Route path="/gamification" element={<GamificationPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </DashboardLayout>
