@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, Suspense, lazy } from "react";
 import { Zap, Leaf, Factory, TrendingDown, Sun, Wind } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -10,10 +10,19 @@ import {
   PolarAngleAxis, PolarRadiusAxis, Legend, AreaChart, Area,
 } from "recharts";
 import { universityData, hourlyDemand, euiComparison, buildingData, aiRecommendations, indianCampusComparison, type University } from "@/data/mockData";
+import { motion, AnimatePresence } from "framer-motion";
+import EnergyFlowMap from "@/components/EnergyFlowMap";
+import AlertCenter from "@/components/AlertCenter";
+import RetrofitCalculator from "@/components/RetrofitCalculator";
+
+const Campus3DView = lazy(() => import("@/components/Campus3DView"));
+
+const MotionCard = motion.create(Card);
 
 const Index = () => {
   const [selectedUni, setSelectedUni] = useState<University>("NMIMS Indore");
   const [solarSlider, setSolarSlider] = useState([15]);
+  const [expandedBuilding, setExpandedBuilding] = useState<string | null>(null);
   const data = universityData[selectedUni];
 
   const co2Reduction = useMemo(() => {
@@ -22,10 +31,23 @@ const Index = () => {
 
   const gridIndependence = data.renewablesPct + solarSlider[0] * 0.5;
 
+  // Dynamic bg based on energy health
+  const healthScore = data.renewablesPct;
+  const bgGradient = healthScore > 25
+    ? "from-emerald-950/20 via-background to-background"
+    : healthScore > 15
+    ? "from-amber-950/20 via-background to-background"
+    : "from-red-950/20 via-background to-background";
+
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className={`space-y-6 min-h-screen bg-gradient-to-br ${bgGradient} transition-all duration-1000`}>
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="flex flex-col md:flex-row md:items-center justify-between gap-4"
+      >
         <div>
           <h1 className="text-2xl font-bold text-foreground">Energy Analytics Dashboard</h1>
           <p className="text-sm text-muted-foreground">Real-time campus energy monitoring & benchmarking</p>
@@ -40,33 +62,41 @@ const Index = () => {
             ))}
           </SelectContent>
         </Select>
-      </div>
+      </motion.div>
 
-      {/* KPI Cards */}
+      {/* KPI Cards with staggered animation */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { label: "Annual Consumption", value: `${(data.totalConsumption / 1000).toFixed(0)} MWh`, icon: Zap, color: "text-energy-cyan" },
           { label: "Current Grid Load", value: `${data.gridLoad.toLocaleString()} kW`, icon: Factory, color: "text-energy-amber" },
           { label: "Renewables", value: `${data.renewablesPct}%`, icon: Leaf, color: "text-energy-green" },
           { label: "Carbon Savings", value: `${(data.carbonSavings / 1000).toFixed(1)}k Tons`, icon: TrendingDown, color: "text-primary" },
-        ].map((kpi) => (
-          <Card key={kpi.label} className="glass-card animate-scale-in">
-            <CardContent className="p-4 flex items-center gap-4">
-              <div className={`h-10 w-10 rounded-lg bg-secondary flex items-center justify-center ${kpi.color}`}>
-                <kpi.icon className="h-5 w-5" />
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">{kpi.label}</p>
-                <p className="text-xl font-bold text-foreground">{kpi.value}</p>
-              </div>
-            </CardContent>
-          </Card>
+        ].map((kpi, idx) => (
+          <motion.div
+            key={kpi.label}
+            initial={{ opacity: 0, y: 20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ delay: idx * 0.1, type: "spring", damping: 20 }}
+          >
+            <Card className="glass-card hover:scale-[1.03] transition-transform cursor-pointer">
+              <CardContent className="p-4 flex items-center gap-4">
+                <div className={`h-10 w-10 rounded-lg bg-secondary flex items-center justify-center ${kpi.color}`}>
+                  <kpi.icon className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">{kpi.label}</p>
+                  <p className="text-xl font-bold text-foreground">{kpi.value}</p>
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
         ))}
       </div>
 
       <Tabs defaultValue="overview" className="space-y-4">
         <TabsList className="glass-card">
           <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="3d-campus">3D Campus</TabsTrigger>
           <TabsTrigger value="benchmark">Benchmarks</TabsTrigger>
           <TabsTrigger value="simulator">Energy Lab</TabsTrigger>
           <TabsTrigger value="nmims">NMIMS Focus</TabsTrigger>
@@ -117,23 +147,77 @@ const Index = () => {
             </Card>
           </div>
 
-          {/* Building Heatmap */}
+          {/* Energy Flow Map */}
+          <Card className="glass-card">
+            <CardHeader><CardTitle className="text-sm">⚡ Live Energy Flow Map</CardTitle></CardHeader>
+            <CardContent>
+              <EnergyFlowMap />
+            </CardContent>
+          </Card>
+
+          {/* Building Heatmap with expandable cards */}
           <Card className="glass-card">
             <CardHeader><CardTitle className="text-sm">Building Energy Intensity Heatmap</CardTitle></CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
                 {buildingData.map((b) => {
                   const hue = b.intensity > 0.7 ? 0 : b.intensity > 0.5 ? 38 : 142;
+                  const isExpanded = expandedBuilding === b.name;
                   return (
-                    <div key={b.name} className="rounded-lg p-3 text-center transition-all hover:scale-105 cursor-pointer border border-border/30"
-                      style={{ background: `hsla(${hue}, 70%, ${50 - b.intensity * 15}%, 0.2)`, borderColor: `hsla(${hue}, 70%, 50%, 0.3)` }}>
+                    <motion.div
+                      key={b.name}
+                      layout
+                      onClick={() => setExpandedBuilding(isExpanded ? null : b.name)}
+                      className={`rounded-lg p-3 text-center cursor-pointer border border-border/30 transition-shadow ${
+                        isExpanded ? "col-span-2 row-span-2 z-10 shadow-2xl" : ""
+                      }`}
+                      style={{ background: `hsla(${hue}, 70%, ${50 - b.intensity * 15}%, 0.2)`, borderColor: `hsla(${hue}, 70%, 50%, 0.3)` }}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.97 }}
+                    >
                       <p className="text-xs font-medium text-foreground">{b.name}</p>
                       <p className="text-lg font-bold" style={{ color: `hsl(${hue}, 70%, 50%)` }}>{Math.round(b.intensity * 100)}%</p>
                       <p className="text-[10px] text-muted-foreground">{b.type}</p>
-                    </div>
+                      <AnimatePresence>
+                        {isExpanded && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: "auto" }}
+                            exit={{ opacity: 0, height: 0 }}
+                            className="mt-2 space-y-1 text-left"
+                          >
+                            <p className="text-[10px] text-muted-foreground">Avg Load: {Math.round(b.intensity * 850)} kW</p>
+                            <p className="text-[10px] text-muted-foreground">Peak: {Math.round(b.intensity * 1200)} kW</p>
+                            <p className="text-[10px] text-muted-foreground">Status: {b.intensity > 0.7 ? "⚠️ High" : b.intensity > 0.5 ? "⚡ Moderate" : "✅ Optimal"}</p>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </motion.div>
                   );
                 })}
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Alert Center */}
+          <AlertCenter />
+        </TabsContent>
+
+        {/* 3D CAMPUS TAB */}
+        <TabsContent value="3d-campus" className="space-y-4">
+          <Card className="glass-card">
+            <CardHeader>
+              <CardTitle className="text-sm">🏗️ 3D Campus Digital Twin</CardTitle>
+              <p className="text-[10px] text-muted-foreground">Rotate to explore • Building colors map to energy intensity • Red = High, Green = Optimal</p>
+            </CardHeader>
+            <CardContent>
+              <Suspense fallback={
+                <div className="w-full h-[400px] rounded-xl bg-secondary/30 flex items-center justify-center">
+                  <p className="text-sm text-muted-foreground animate-pulse">Loading 3D Campus...</p>
+                </div>
+              }>
+                <Campus3DView />
+              </Suspense>
             </CardContent>
           </Card>
         </TabsContent>
@@ -188,23 +272,35 @@ const Index = () => {
                   <Slider value={solarSlider} onValueChange={setSolarSlider} min={0} max={100} step={1} className="mt-2" />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="glass-card rounded-lg p-4 text-center glow-primary">
+                  <motion.div
+                    className="glass-card rounded-lg p-4 text-center glow-primary"
+                    animate={{ scale: solarSlider[0] > 50 ? [1, 1.02, 1] : 1 }}
+                    transition={{ repeat: solarSlider[0] > 50 ? Infinity : 0, duration: 2 }}
+                  >
                     <p className="text-xs text-muted-foreground">Projected CO₂ Reduction</p>
                     <p className="text-3xl font-bold text-primary">{co2Reduction}</p>
                     <p className="text-xs text-muted-foreground">Metric Tons/yr</p>
-                  </div>
+                  </motion.div>
                   <div className="glass-card rounded-lg p-4 text-center">
                     <p className="text-xs text-muted-foreground">Grid Independence</p>
                     <p className="text-3xl font-bold text-energy-cyan">{Math.min(100, Math.round(gridIndependence))}%</p>
                     <p className="text-xs text-muted-foreground">Self-powered</p>
                   </div>
                 </div>
-                {solarSlider[0] >= 80 && (
-                  <div className="glass-card rounded-lg p-3 border-primary/30 border text-center animate-fade-in">
-                    <Leaf className="h-5 w-5 text-primary mx-auto mb-1" />
-                    <p className="text-xs text-primary font-semibold">🎉 Net-Zero trajectory achieved!</p>
-                  </div>
-                )}
+                <AnimatePresence>
+                  {solarSlider[0] >= 80 && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.8 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.8 }}
+                      transition={{ type: "spring", damping: 15 }}
+                      className="glass-card rounded-lg p-3 border-primary/30 border text-center"
+                    >
+                      <Leaf className="h-5 w-5 text-primary mx-auto mb-1" />
+                      <p className="text-xs text-primary font-semibold">🎉 Net-Zero trajectory achieved!</p>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </CardContent>
             </Card>
 
@@ -229,20 +325,30 @@ const Index = () => {
             </Card>
           </div>
 
+          {/* Retrofit Calculator */}
+          <RetrofitCalculator />
+
           {/* AI Recommendations */}
           <Card className="glass-card">
             <CardHeader><CardTitle className="text-sm">🤖 Smart Recommendations for {selectedUni}</CardTitle></CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {aiRecommendations.map((rec, i) => (
-                  <div key={i} className="glass-card rounded-lg p-4 space-y-2 hover:scale-[1.02] transition-transform cursor-pointer">
+                  <motion.div
+                    key={i}
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: i * 0.1 }}
+                    className="glass-card rounded-lg p-4 space-y-2 hover:scale-[1.02] transition-transform cursor-pointer"
+                    whileHover={{ y: -2 }}
+                  >
                     <div className="flex items-center gap-2">
                       <span className={`h-2 w-2 rounded-full ${rec.priority === "high" ? "bg-energy-red" : rec.priority === "medium" ? "bg-energy-amber" : "bg-energy-green"}`} />
                       <p className="text-xs font-semibold text-foreground">{rec.action}</p>
                     </div>
                     <p className="text-xs text-primary">{rec.impact}</p>
                     <p className="text-[10px] text-muted-foreground">ROI: {rec.roi}</p>
-                  </div>
+                  </motion.div>
                 ))}
               </div>
             </CardContent>
@@ -274,23 +380,30 @@ const Index = () => {
               { label: "Solar Adoption", nmims: "15%", mit: "28%", trend: "↑ 5%/quarter goal" },
               { label: "Water Recycling", nmims: "45%", mit: "72%", trend: "Target: 60% by 2026" },
               { label: "Carbon Neutrality", nmims: "30%", mit: "65%", trend: "Net-Zero by 2035" },
-            ].map((card) => (
-              <Card key={card.label} className="glass-card">
-                <CardContent className="p-4 space-y-3">
-                  <p className="text-xs font-semibold text-foreground">{card.label}</p>
-                  <div className="flex justify-between text-sm">
-                    <div>
-                      <p className="text-[10px] text-muted-foreground">NMIMS</p>
-                      <p className="text-lg font-bold text-primary">{card.nmims}</p>
+            ].map((card, idx) => (
+              <motion.div
+                key={card.label}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: idx * 0.15 }}
+              >
+                <Card className="glass-card">
+                  <CardContent className="p-4 space-y-3">
+                    <p className="text-xs font-semibold text-foreground">{card.label}</p>
+                    <div className="flex justify-between text-sm">
+                      <div>
+                        <p className="text-[10px] text-muted-foreground">NMIMS</p>
+                        <p className="text-lg font-bold text-primary">{card.nmims}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[10px] text-muted-foreground">MIT</p>
+                        <p className="text-lg font-bold text-energy-cyan">{card.mit}</p>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-[10px] text-muted-foreground">MIT</p>
-                      <p className="text-lg font-bold text-energy-cyan">{card.mit}</p>
-                    </div>
-                  </div>
-                  <p className="text-[10px] text-energy-green">{card.trend}</p>
-                </CardContent>
-              </Card>
+                    <p className="text-[10px] text-energy-green">{card.trend}</p>
+                  </CardContent>
+                </Card>
+              </motion.div>
             ))}
           </div>
         </TabsContent>
