@@ -1,5 +1,5 @@
-import { useState, useMemo, Suspense, lazy } from "react";
-import { Zap, Leaf, Factory, TrendingDown, Sun, Wind, TrendingUp, Trophy, Medal, Award } from "lucide-react";
+import { useState, useMemo, Suspense, lazy, useEffect, useRef } from "react";
+import { Zap, Leaf, Factory, TrendingDown, Sun, Wind, TrendingUp, Trophy, Medal, Award, AlertTriangle, Activity } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Line, XAxis, YAxis,
   CartesianGrid, Tooltip, BarChart, Bar, RadarChart, Radar, PolarGrid,
-  PolarAngleAxis, PolarRadiusAxis, Legend, AreaChart, Area,
+  PolarAngleAxis, PolarRadiusAxis, Legend, AreaChart, Area, LineChart,
 } from "recharts";
 import { universityData, hourlyDemand, euiComparison, buildingData, aiRecommendations, indianCampusComparison, type University } from "@/data/mockData";
 import { motion, AnimatePresence } from "framer-motion";
@@ -16,6 +16,9 @@ import EnergyFlowMap from "@/components/EnergyFlowMap";
 import AlertCenter from "@/components/AlertCenter";
 import RetrofitCalculator from "@/components/RetrofitCalculator";
 import CampusMap from "@/components/CampusMap";
+import MLForecastChart from "@/components/MLForecastChart";
+import { useRealtime } from "@/components/DashboardLayout";
+import { toast } from "@/hooks/use-toast";
 
 const Campus3DView = lazy(() => import("@/components/Campus3DView"));
 
@@ -24,6 +27,23 @@ const Index = () => {
   const [solarSlider, setSolarSlider] = useState([15]);
   const [expandedBuilding, setExpandedBuilding] = useState<string | null>(null);
   const data = universityData[selectedUni];
+  const { liveMetrics, forecastData, anomalies, liveHistory } = useRealtime();
+  const lastAnomalyRef = useRef<string>("");
+
+  // Anomaly toast notification
+  useEffect(() => {
+    if (anomalies.size > 0) {
+      const anomalyList = Array.from(anomalies).join(", ");
+      if (anomalyList !== lastAnomalyRef.current) {
+        lastAnomalyRef.current = anomalyList;
+        toast({
+          title: "⚠️ Anomaly Detected",
+          description: `Energy spike in: ${anomalyList}. Usage 20%+ above moving average.`,
+          variant: "destructive",
+        });
+      }
+    }
+  }, [anomalies]);
 
   const co2Reduction = useMemo(() => {
     return Math.round(data.totalConsumption * (solarSlider[0] / 100) * 0.7 / 1000);
@@ -31,13 +51,17 @@ const Index = () => {
 
   const gridIndependence = data.renewablesPct + solarSlider[0] * 0.5;
 
-  // Dynamic bg based on energy health
   const healthScore = data.renewablesPct;
   const bgGradient = healthScore > 25
     ? "from-emerald-950/20 via-background to-background"
     : healthScore > 15
     ? "from-amber-950/20 via-background to-background"
     : "from-red-950/20 via-background to-background";
+
+  // Live KPI values (blend static + real-time)
+  const liveLoad = liveMetrics?.totalLoad ?? data.gridLoad;
+  const liveEfficiency = liveMetrics?.efficiency ?? 82;
+  const liveSolar = liveMetrics?.solarOutput ?? 0;
 
   return (
     <div className={`space-y-6 min-h-screen bg-gradient-to-br ${bgGradient} transition-all duration-1000`}>
@@ -64,28 +88,37 @@ const Index = () => {
         </Select>
       </motion.div>
 
-      {/* KPI Cards with staggered animation */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Live KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {[
           { label: "Annual Consumption", value: `${(data.totalConsumption / 1000).toFixed(0)} MWh`, icon: Zap, color: "text-energy-cyan" },
-          { label: "Current Grid Load", value: `${data.gridLoad.toLocaleString()} kW`, icon: Factory, color: "text-energy-amber" },
-          { label: "Renewables", value: `${data.renewablesPct}%`, icon: Leaf, color: "text-energy-green" },
-          { label: "Carbon Savings", value: `${(data.carbonSavings / 1000).toFixed(1)}k Tons`, icon: TrendingDown, color: "text-primary" },
+          { label: "Live Grid Load", value: `${liveLoad.toLocaleString()} kW`, icon: Factory, color: "text-energy-amber", live: true },
+          { label: "Efficiency", value: `${liveEfficiency}%`, icon: Activity, color: "text-energy-green", live: true },
+          { label: "Solar Output", value: `${liveSolar} kW`, icon: Sun, color: "text-energy-amber", live: true },
+          { label: "Carbon Savings", value: `${(data.carbonSavings / 1000).toFixed(1)}k T`, icon: TrendingDown, color: "text-primary" },
         ].map((kpi, idx) => (
           <motion.div
             key={kpi.label}
             initial={{ opacity: 0, y: 20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ delay: idx * 0.1, type: "spring", damping: 20 }}
+            transition={{ delay: idx * 0.08, type: "spring", damping: 20 }}
           >
-            <Card className="glass-card hover:scale-[1.03] transition-transform cursor-pointer">
-              <CardContent className="p-4 flex items-center gap-4">
-                <div className={`h-10 w-10 rounded-lg bg-secondary flex items-center justify-center ${kpi.color}`}>
-                  <kpi.icon className="h-5 w-5" />
+            <Card className={`glass-card hover:scale-[1.03] transition-all cursor-pointer ${kpi.live ? "animate-pulse-glow" : ""}`}>
+              <CardContent className="p-4 flex items-center gap-3">
+                <div className={`h-9 w-9 rounded-lg bg-secondary flex items-center justify-center ${kpi.color}`}>
+                  <kpi.icon className="h-4 w-4" />
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">{kpi.label}</p>
-                  <p className="text-xl font-bold text-foreground">{kpi.value}</p>
+                  <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                    {kpi.label}
+                    {kpi.live && (
+                      <span className="relative flex h-1.5 w-1.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-energy-green opacity-75" />
+                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-energy-green" />
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-lg font-bold text-foreground">{kpi.value}</p>
                 </div>
               </CardContent>
             </Card>
@@ -96,6 +129,13 @@ const Index = () => {
       <Tabs defaultValue="overview" className="space-y-4">
         <TabsList className="glass-card flex-wrap">
           <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="ml-forecast">
+            ML Forecast
+            <span className="ml-1 relative flex h-1.5 w-1.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-energy-cyan opacity-75" />
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-energy-cyan" />
+            </span>
+          </TabsTrigger>
           <TabsTrigger value="campus-map">Campus Map</TabsTrigger>
           <TabsTrigger value="3d-campus">3D Campus</TabsTrigger>
           <TabsTrigger value="benchmark">Benchmarks</TabsTrigger>
@@ -106,6 +146,37 @@ const Index = () => {
 
         {/* OVERVIEW TAB */}
         <TabsContent value="overview" className="space-y-4">
+          {/* Live streaming chart */}
+          <Card className="glass-card">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Activity className="h-4 w-4 text-energy-cyan" /> Live Campus Load
+                <span className="relative flex h-2 w-2 ml-1">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-energy-green opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-energy-green" />
+                </span>
+                <span className="text-[9px] text-muted-foreground ml-2">Updated every 1s</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={200}>
+                <AreaChart data={liveHistory}>
+                  <defs>
+                    <linearGradient id="liveAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="hsl(168, 80%, 42%)" stopOpacity={0.4} />
+                      <stop offset="95%" stopColor="hsl(168, 80%, 42%)" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(200, 15%, 18%)" />
+                  <XAxis dataKey="time" stroke="hsl(200, 10%, 55%)" fontSize={9} interval={9} />
+                  <YAxis stroke="hsl(200, 10%, 55%)" fontSize={9} domain={['auto', 'auto']} />
+                  <Tooltip contentStyle={{ background: "hsl(200, 20%, 11%)", border: "1px solid hsl(200, 15%, 18%)", borderRadius: "8px", color: "hsl(160, 20%, 92%)" }} />
+                  <Area type="monotone" dataKey="value" stroke="hsl(168, 80%, 42%)" fill="url(#liveAreaGrad)" strokeWidth={2} dot={false} name="Load (kW)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Donut */}
             <Card className="glass-card">
@@ -157,29 +228,37 @@ const Index = () => {
             </CardContent>
           </Card>
 
-          {/* Building Heatmap with expandable cards */}
+          {/* Building Heatmap with live anomaly indicators */}
           <Card className="glass-card">
             <CardHeader><CardTitle className="text-sm">Building Energy Intensity Heatmap</CardTitle></CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
                 {buildingData.map((b) => {
-                  const hue = b.intensity > 0.7 ? 0 : b.intensity > 0.5 ? 38 : 142;
+                  const liveBuilding = liveMetrics?.buildings.find((lb) => lb.name === b.name);
+                  const intensity = liveBuilding?.intensity ?? b.intensity;
+                  const hasAnomaly = anomalies.has(b.name);
+                  const hue = intensity > 0.7 ? 0 : intensity > 0.5 ? 38 : 142;
                   const isExpanded = expandedBuilding === b.name;
                   return (
                     <motion.div
                       key={b.name}
                       layout
                       onClick={() => setExpandedBuilding(isExpanded ? null : b.name)}
-                      className={`rounded-lg p-3 text-center cursor-pointer border border-border/30 transition-shadow ${
+                      className={`rounded-lg p-3 text-center cursor-pointer border border-border/30 transition-shadow relative ${
                         isExpanded ? "col-span-2 row-span-2 z-10 shadow-2xl" : ""
-                      }`}
-                      style={{ background: `hsla(${hue}, 70%, ${50 - b.intensity * 15}%, 0.2)`, borderColor: `hsla(${hue}, 70%, 50%, 0.3)` }}
+                      } ${hasAnomaly ? "glow-neon-red" : ""}`}
+                      style={{ background: `hsla(${hue}, 70%, ${50 - intensity * 15}%, 0.2)`, borderColor: `hsla(${hue}, 70%, 50%, 0.3)` }}
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.97 }}
                     >
+                      {hasAnomaly && (
+                        <div className="absolute -top-1 -right-1 z-10">
+                          <AlertTriangle className="h-3.5 w-3.5 text-energy-red animate-pulse" />
+                        </div>
+                      )}
                       <p className="text-xs font-medium text-foreground">{b.name}</p>
-                      <p className="text-lg font-bold" style={{ color: `hsl(${hue}, 70%, 50%)` }}>{Math.round(b.intensity * 100)}%</p>
-                      <p className="text-[10px] text-muted-foreground">{b.type}</p>
+                      <p className="text-lg font-bold" style={{ color: `hsl(${hue}, 70%, 50%)` }}>{Math.round(intensity * 100)}%</p>
+                      <p className="text-[10px] text-muted-foreground">{liveBuilding ? `${liveBuilding.load} kW` : b.type}</p>
                       <AnimatePresence>
                         {isExpanded && (
                           <motion.div
@@ -188,9 +267,9 @@ const Index = () => {
                             exit={{ opacity: 0, height: 0 }}
                             className="mt-2 space-y-1 text-left"
                           >
-                            <p className="text-[10px] text-muted-foreground">Avg Load: {Math.round(b.intensity * 850)} kW</p>
-                            <p className="text-[10px] text-muted-foreground">Peak: {Math.round(b.intensity * 1200)} kW</p>
-                            <p className="text-[10px] text-muted-foreground">Status: {b.intensity > 0.7 ? "⚠️ High" : b.intensity > 0.5 ? "⚡ Moderate" : "✅ Optimal"}</p>
+                            <p className="text-[10px] text-muted-foreground">Avg Load: {liveBuilding?.load ?? Math.round(b.intensity * 850)} kW</p>
+                            <p className="text-[10px] text-muted-foreground">Peak: {Math.round((liveBuilding?.intensity ?? b.intensity) * 1200)} kW</p>
+                            <p className="text-[10px] text-muted-foreground">Status: {hasAnomaly ? "🔴 Anomaly" : intensity > 0.7 ? "⚠️ High" : intensity > 0.5 ? "⚡ Moderate" : "✅ Optimal"}</p>
                           </motion.div>
                         )}
                       </AnimatePresence>
@@ -201,8 +280,53 @@ const Index = () => {
             </CardContent>
           </Card>
 
-          {/* Alert Center */}
           <AlertCenter />
+        </TabsContent>
+
+        {/* ML FORECAST TAB */}
+        <TabsContent value="ml-forecast" className="space-y-4">
+          <MLForecastChart data={forecastData} anomalyActive={anomalies.size > 0} />
+
+          {/* Anomaly list */}
+          {anomalies.size > 0 && (
+            <Card className="glass-card border-energy-red/30">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2 text-energy-red">
+                  <AlertTriangle className="h-4 w-4" /> Active Anomalies
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-2">
+                  {Array.from(anomalies).map((name) => (
+                    <span key={name} className="text-[10px] px-2 py-1 rounded-full bg-energy-red/10 text-energy-red border border-energy-red/20 font-medium animate-pulse">
+                      ⚠️ {name}
+                    </span>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Live streaming mini-chart */}
+          <Card className="glass-card">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Activity className="h-4 w-4 text-energy-cyan" /> Real-time Load Stream
+                <span className="text-[9px] text-muted-foreground">• 1s interval • sine-wave simulation</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={180}>
+                <LineChart data={liveHistory}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(200, 15%, 18%)" />
+                  <XAxis dataKey="time" stroke="hsl(200, 10%, 55%)" fontSize={9} interval={9} />
+                  <YAxis stroke="hsl(200, 10%, 55%)" fontSize={9} domain={['auto', 'auto']} />
+                  <Tooltip contentStyle={{ background: "hsl(200, 20%, 11%)", border: "1px solid hsl(200, 15%, 18%)", borderRadius: "8px", color: "hsl(160, 20%, 92%)" }} />
+                  <Line type="monotone" dataKey="value" stroke="hsl(168, 80%, 42%)" strokeWidth={2} dot={false} name="Live kW" />
+                </LineChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* CAMPUS MAP TAB */}
@@ -218,14 +342,16 @@ const Index = () => {
                       <p className="text-[10px] text-muted-foreground">Filtered stats for selected building</p>
                     </div>
                     {(() => {
+                      const lb = liveMetrics?.buildings.find(x => x.name === expandedBuilding);
                       const b = buildingData.find(x => x.name === expandedBuilding);
                       if (!b) return null;
-                      const hue = b.intensity > 0.7 ? 0 : b.intensity > 0.5 ? 38 : 142;
+                      const intensity = lb?.intensity ?? b.intensity;
+                      const hue = intensity > 0.7 ? 0 : intensity > 0.5 ? 38 : 142;
                       return (
                         <div className="grid grid-cols-3 gap-4 text-center">
-                          <div><p className="text-[10px] text-muted-foreground">Load</p><p className="text-lg font-bold" style={{ color: `hsl(${hue}, 70%, 50%)` }}>{Math.round(b.intensity * 850)} kW</p></div>
-                          <div><p className="text-[10px] text-muted-foreground">Peak</p><p className="text-lg font-bold text-foreground">{Math.round(b.intensity * 1200)} kW</p></div>
-                          <div><p className="text-[10px] text-muted-foreground">Efficiency</p><p className="text-lg font-bold text-energy-green">{Math.round((1 - b.intensity) * 100)}%</p></div>
+                          <div><p className="text-[10px] text-muted-foreground">Load</p><p className="text-lg font-bold" style={{ color: `hsl(${hue}, 70%, 50%)` }}>{lb?.load ?? Math.round(b.intensity * 850)} kW</p></div>
+                          <div><p className="text-[10px] text-muted-foreground">Peak</p><p className="text-lg font-bold text-foreground">{Math.round(intensity * 1200)} kW</p></div>
+                          <div><p className="text-[10px] text-muted-foreground">Efficiency</p><p className="text-lg font-bold text-energy-green">{Math.round((1 - intensity) * 100)}%</p></div>
                         </div>
                       );
                     })()}
@@ -247,20 +373,21 @@ const Index = () => {
                     <TableHead className="text-[10px] w-12">Rank</TableHead>
                     <TableHead className="text-[10px]">Building</TableHead>
                     <TableHead className="text-[10px]">Type</TableHead>
-                    <TableHead className="text-[10px] text-right">Efficiency Score</TableHead>
-                    <TableHead className="text-[10px] text-right">24h Trend</TableHead>
+                    <TableHead className="text-[10px] text-right">Efficiency</TableHead>
+                    <TableHead className="text-[10px] text-right">Live Load</TableHead>
+                    <TableHead className="text-[10px] text-right">Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {[...buildingData]
                     .sort((a, b) => a.intensity - b.intensity)
                     .map((b, idx) => {
-                      const score = Math.round((1 - b.intensity) * 100);
-                      const trendUp = Math.random() > 0.5;
-                      const trendVal = (Math.random() * 8 + 1).toFixed(1);
-                      const trophyIcon = idx === 0 ? <Trophy className="h-3.5 w-3.5 text-energy-amber glow-amber" /> : idx === 1 ? <Medal className="h-3.5 w-3.5 text-muted-foreground" style={{ color: "#c0c0c0" }} /> : idx === 2 ? <Award className="h-3.5 w-3.5" style={{ color: "#cd7f32" }} /> : null;
+                      const lb = liveMetrics?.buildings.find(x => x.name === b.name);
+                      const score = Math.round((1 - (lb?.intensity ?? b.intensity)) * 100);
+                      const hasAnomaly = anomalies.has(b.name);
+                      const trophyIcon = idx === 0 ? <Trophy className="h-3.5 w-3.5 text-energy-amber" /> : idx === 1 ? <Medal className="h-3.5 w-3.5" style={{ color: "#c0c0c0" }} /> : idx === 2 ? <Award className="h-3.5 w-3.5" style={{ color: "#cd7f32" }} /> : null;
                       return (
-                        <TableRow key={b.name} className={`border-border/20 ${idx < 3 ? "bg-primary/5" : ""}`}>
+                        <TableRow key={b.name} className={`border-border/20 ${idx < 3 ? "bg-primary/5" : ""} ${hasAnomaly ? "bg-energy-red/5" : ""}`}>
                           <TableCell className="text-xs font-bold">
                             <div className="flex items-center gap-1.5">
                               {trophyIcon || <span className="text-muted-foreground">{idx + 1}</span>}
@@ -271,11 +398,13 @@ const Index = () => {
                           <TableCell className="text-right">
                             <span className={`text-xs font-bold ${score > 60 ? "text-energy-green" : score > 40 ? "text-energy-amber" : "text-energy-red"}`}>{score}%</span>
                           </TableCell>
+                          <TableCell className="text-right text-xs font-mono text-foreground">{lb?.load ?? "—"} kW</TableCell>
                           <TableCell className="text-right">
-                            <div className={`inline-flex items-center gap-0.5 text-[10px] font-bold ${trendUp ? "text-energy-red" : "text-energy-green"}`}>
-                              {trendUp ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                              {trendVal}%
-                            </div>
+                            {hasAnomaly ? (
+                              <span className="text-[10px] text-energy-red font-bold animate-pulse">⚠️ SPIKE</span>
+                            ) : (
+                              <span className="text-[10px] text-energy-green">✅ Normal</span>
+                            )}
                           </TableCell>
                         </TableRow>
                       );
@@ -286,6 +415,7 @@ const Index = () => {
           </Card>
         </TabsContent>
 
+        {/* 3D CAMPUS TAB */}
         <TabsContent value="3d-campus" className="space-y-4">
           <Card className="glass-card">
             <CardHeader>
@@ -325,7 +455,6 @@ const Index = () => {
                 </ResponsiveContainer>
               </CardContent>
             </Card>
-
             <Card className="glass-card">
               <CardHeader><CardTitle className="text-sm">Green Infrastructure Radar</CardTitle></CardHeader>
               <CardContent>
@@ -385,8 +514,6 @@ const Index = () => {
                 </AnimatePresence>
               </CardContent>
             </Card>
-
-            {/* Grid Independence Gauge */}
             <Card className="glass-card">
               <CardHeader><CardTitle className="text-sm flex items-center gap-2"><Wind className="h-4 w-4 text-energy-cyan" /> Grid Independence Gauge</CardTitle></CardHeader>
               <CardContent className="flex flex-col items-center justify-center">
@@ -402,15 +529,10 @@ const Index = () => {
                     <p className="text-[10px] text-muted-foreground">Renewable</p>
                   </div>
                 </div>
-                <p className="text-xs text-muted-foreground mt-4 text-center">Current renewable energy contribution to campus power</p>
               </CardContent>
             </Card>
           </div>
-
-          {/* Retrofit Calculator */}
           <RetrofitCalculator />
-
-          {/* AI Recommendations */}
           <Card className="glass-card">
             <CardHeader><CardTitle className="text-sm">🤖 Smart Recommendations for {selectedUni}</CardTitle></CardHeader>
             <CardContent>
@@ -455,8 +577,6 @@ const Index = () => {
               </ResponsiveContainer>
             </CardContent>
           </Card>
-
-          {/* Performance Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {[
               { label: "Solar Adoption", nmims: "15%", mit: "28%", trend: "↑ 5%/quarter goal" },
