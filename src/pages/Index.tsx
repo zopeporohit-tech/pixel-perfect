@@ -1,9 +1,10 @@
 import { useState, useMemo, Suspense, lazy } from "react";
-import { Zap, Leaf, Factory, TrendingDown, Sun, Wind } from "lucide-react";
+import { Zap, Leaf, Factory, TrendingDown, Sun, Wind, TrendingUp, Trophy, Medal, Award } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Line, XAxis, YAxis,
   CartesianGrid, Tooltip, BarChart, Bar, RadarChart, Radar, PolarGrid,
@@ -14,10 +15,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import EnergyFlowMap from "@/components/EnergyFlowMap";
 import AlertCenter from "@/components/AlertCenter";
 import RetrofitCalculator from "@/components/RetrofitCalculator";
+import CampusMap from "@/components/CampusMap";
 
 const Campus3DView = lazy(() => import("@/components/Campus3DView"));
-
-const MotionCard = motion.create(Card);
 
 const Index = () => {
   const [selectedUni, setSelectedUni] = useState<University>("NMIMS Indore");
@@ -94,11 +94,13 @@ const Index = () => {
       </div>
 
       <Tabs defaultValue="overview" className="space-y-4">
-        <TabsList className="glass-card">
+        <TabsList className="glass-card flex-wrap">
           <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="campus-map">Campus Map</TabsTrigger>
           <TabsTrigger value="3d-campus">3D Campus</TabsTrigger>
           <TabsTrigger value="benchmark">Benchmarks</TabsTrigger>
           <TabsTrigger value="simulator">Energy Lab</TabsTrigger>
+          <TabsTrigger value="leaderboard">Leaderboard</TabsTrigger>
           <TabsTrigger value="nmims">NMIMS Focus</TabsTrigger>
         </TabsList>
 
@@ -203,7 +205,87 @@ const Index = () => {
           <AlertCenter />
         </TabsContent>
 
-        {/* 3D CAMPUS TAB */}
+        {/* CAMPUS MAP TAB */}
+        <TabsContent value="campus-map" className="space-y-4">
+          <CampusMap selectedBuilding={expandedBuilding} onBuildingSelect={setExpandedBuilding} />
+          {expandedBuilding && (
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+              <Card className="glass-card-active">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-bold text-foreground">{expandedBuilding} — Detailed View</p>
+                      <p className="text-[10px] text-muted-foreground">Filtered stats for selected building</p>
+                    </div>
+                    {(() => {
+                      const b = buildingData.find(x => x.name === expandedBuilding);
+                      if (!b) return null;
+                      const hue = b.intensity > 0.7 ? 0 : b.intensity > 0.5 ? 38 : 142;
+                      return (
+                        <div className="grid grid-cols-3 gap-4 text-center">
+                          <div><p className="text-[10px] text-muted-foreground">Load</p><p className="text-lg font-bold" style={{ color: `hsl(${hue}, 70%, 50%)` }}>{Math.round(b.intensity * 850)} kW</p></div>
+                          <div><p className="text-[10px] text-muted-foreground">Peak</p><p className="text-lg font-bold text-foreground">{Math.round(b.intensity * 1200)} kW</p></div>
+                          <div><p className="text-[10px] text-muted-foreground">Efficiency</p><p className="text-lg font-bold text-energy-green">{Math.round((1 - b.intensity) * 100)}%</p></div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+        </TabsContent>
+
+        {/* LEADERBOARD TAB */}
+        <TabsContent value="leaderboard" className="space-y-4">
+          <Card className="glass-card">
+            <CardHeader><CardTitle className="text-sm flex items-center gap-2"><Trophy className="h-4 w-4 text-energy-amber" /> Campus Green Leaderboard</CardTitle></CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-border/30">
+                    <TableHead className="text-[10px] w-12">Rank</TableHead>
+                    <TableHead className="text-[10px]">Building</TableHead>
+                    <TableHead className="text-[10px]">Type</TableHead>
+                    <TableHead className="text-[10px] text-right">Efficiency Score</TableHead>
+                    <TableHead className="text-[10px] text-right">24h Trend</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {[...buildingData]
+                    .sort((a, b) => a.intensity - b.intensity)
+                    .map((b, idx) => {
+                      const score = Math.round((1 - b.intensity) * 100);
+                      const trendUp = Math.random() > 0.5;
+                      const trendVal = (Math.random() * 8 + 1).toFixed(1);
+                      const trophyIcon = idx === 0 ? <Trophy className="h-3.5 w-3.5 text-energy-amber glow-amber" /> : idx === 1 ? <Medal className="h-3.5 w-3.5 text-muted-foreground" style={{ color: "#c0c0c0" }} /> : idx === 2 ? <Award className="h-3.5 w-3.5" style={{ color: "#cd7f32" }} /> : null;
+                      return (
+                        <TableRow key={b.name} className={`border-border/20 ${idx < 3 ? "bg-primary/5" : ""}`}>
+                          <TableCell className="text-xs font-bold">
+                            <div className="flex items-center gap-1.5">
+                              {trophyIcon || <span className="text-muted-foreground">{idx + 1}</span>}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-xs font-semibold text-foreground">{b.name}</TableCell>
+                          <TableCell className="text-[10px] text-muted-foreground">{b.type}</TableCell>
+                          <TableCell className="text-right">
+                            <span className={`text-xs font-bold ${score > 60 ? "text-energy-green" : score > 40 ? "text-energy-amber" : "text-energy-red"}`}>{score}%</span>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className={`inline-flex items-center gap-0.5 text-[10px] font-bold ${trendUp ? "text-energy-red" : "text-energy-green"}`}>
+                              {trendUp ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                              {trendVal}%
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="3d-campus" className="space-y-4">
           <Card className="glass-card">
             <CardHeader>
